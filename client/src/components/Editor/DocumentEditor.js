@@ -154,15 +154,18 @@ const EditorWrapper = styled.div`
     line-height: 1.6;
     padding: ${props => props.theme.spacing.xl};
     min-height: calc(100vh - 160px);
+    color: ${props => props.theme.colors.text};
   }
 
   .ql-toolbar {
     border-left: none;
     border-right: none;
     border-top: none;
+    border-bottom: 1px solid ${props => props.theme.colors.border};
     position: sticky;
     top: 0;
     z-index: 50;
+    background: ${props => props.theme.colors.surface};
   }
 
   .ql-container {
@@ -171,6 +174,7 @@ const EditorWrapper = styled.div`
     border-bottom: none;
     flex: 1;
     overflow-y: auto;
+    background: ${props => props.theme.colors.background};
   }
 `;
 
@@ -190,6 +194,11 @@ const ActionButton = styled.button`
   &:hover {
     background: ${props => props.$primary ? props.theme.colors.primaryHover : props.theme.colors.secondary};
     color: ${props => props.$primary ? 'white' : props.theme.colors.text};
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 `;
 
@@ -228,6 +237,7 @@ function DocumentEditor() {
   const titleTimeoutRef = useRef(null);
   const contentTimeoutRef = useRef(null);
   const isUpdatingFromSocket = useRef(false);
+  const lastContentRef = useRef('');
 
   // Quill modules configuration
   const modules = {
@@ -263,7 +273,11 @@ function DocumentEditor() {
       
       setDocument(doc);
       setTitle(doc.title || 'Untitled Document');
-      setContent(doc.content || '');
+      
+      const initialContent = doc.content || '';
+      setContent(initialContent);
+      lastContentRef.current = initialContent;
+      
       setLastSaved(doc.lastModified ? new Date(doc.lastModified) : null);
     } catch (error) {
       console.error('Error loading document:', error);
@@ -288,34 +302,49 @@ function DocumentEditor() {
     }
   }, [documentId, user, socket, connected, loading, error, joinDocument]);
 
-  // Socket event listeners
+  // Socket event listeners with improved handling
   useEffect(() => {
     if (!socket) return;
 
     const handleDocumentData = (data) => {
       console.log('Received document data:', data);
       isUpdatingFromSocket.current = true;
-      setContent(data.content || '');
+      
+      const newContent = data.content || '';
+      setContent(newContent);
+      lastContentRef.current = newContent;
       setTitle(data.title || 'Untitled Document');
       setLastSaved(data.lastModified ? new Date(data.lastModified) : null);
+      
+      // Reset flag after a short delay
       setTimeout(() => {
         isUpdatingFromSocket.current = false;
-      }, 100);
+      }, 50);
     };
 
     const handleTextChange = (data) => {
       console.log('Received text change:', data);
-      if (quillRef.current && data.userId !== user?.id) {
+      
+      // Only apply changes from other users
+      if (data.userId !== user?.id && quillRef.current) {
         isUpdatingFromSocket.current = true;
         const quill = quillRef.current.getEditor();
-        if (data.delta) {
-          quill.updateContents(data.delta, 'silent');
-        } else if (data.content) {
-          quill.setContents(quill.clipboard.convert(data.content), 'silent');
+        
+        try {
+          if (data.content && data.content !== lastContentRef.current) {
+            // Set content directly if it's different
+            quill.root.innerHTML = data.content;
+            lastContentRef.current = data.content;
+            setContent(data.content);
+          }
+        } catch (error) {
+          console.error('Error applying text change:', error);
         }
+        
+        // Reset flag quickly to allow immediate user input
         setTimeout(() => {
           isUpdatingFromSocket.current = false;
-        }, 100);
+        }, 50);
       }
     };
 
@@ -353,23 +382,28 @@ function DocumentEditor() {
     }
     
     titleTimeoutRef.current = setTimeout(() => {
-      if (connected) {
+      if (connected && sendTitleChange) {
         sendTitleChange(newTitle);
       }
     }, 500);
   }, [sendTitleChange, connected]);
 
   const handleContentChange = useCallback((value, delta, source, editor) => {
+    console.log('Content change:', { source, isUpdatingFromSocket: isUpdatingFromSocket.current });
+    
+    // Only process user changes, not programmatic ones
     if (source === 'user' && !isUpdatingFromSocket.current) {
       const newContent = editor.getHTML();
       setContent(newContent);
+      lastContentRef.current = newContent;
       
-      // Send real-time changes
-      if (connected) {
+      // Send real-time changes if connected
+      if (connected && sendTextChange) {
+        console.log('Sending text change');
         sendTextChange(delta, newContent);
       }
       
-      // Debounce save status update
+      // Update save status
       setSaving(true);
       if (contentTimeoutRef.current) {
         clearTimeout(contentTimeoutRef.current);
@@ -381,6 +415,26 @@ function DocumentEditor() {
       }, 1000);
     }
   }, [sendTextChange, connected]);
+
+  // Initialize Quill content when it's ready
+  useEffect(() => {
+    if (quillRef.current && content && !isUpdatingFromSocket.current) {
+      const quill = quillRef.current.getEditor();
+      const currentContent = quill.root.innerHTML;
+      
+      // Only update if content is actually different
+      if (currentContent !== content && content !== lastContentRef.current) {
+        console.log('Setting initial content in Quill');
+        isUpdatingFromSocket.current = true;
+        quill.root.innerHTML = content;
+        lastContentRef.current = content;
+        
+        setTimeout(() => {
+          isUpdatingFromSocket.current = false;
+        }, 50);
+      }
+    }
+  }, [content, loading]);
 
   const getInitials = (name) => {
     return name
@@ -430,7 +484,7 @@ function DocumentEditor() {
   }, []);
 
   if (loading) {
-    return <LoadingSpinner fullscreen text="Loading document..." />;
+    return <LoadingSpinner $fullscreen text="Loading document..." />;
   }
 
   if (error) {
@@ -515,6 +569,7 @@ function DocumentEditor() {
             modules={modules}
             formats={formats}
             placeholder="Start writing your document..."
+            readOnly={false}
           />
         </EditorWrapper>
       </EditorContent>

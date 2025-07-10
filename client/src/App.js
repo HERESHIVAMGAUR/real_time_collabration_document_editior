@@ -147,7 +147,7 @@ function ProtectedRoute({ children }) {
     return (
       <ThemeProvider theme={lightTheme}>
         <GlobalStyle />
-        <LoadingSpinner fullscreen text="Checking authentication..." />
+        <LoadingSpinner $fullscreen text="Checking authentication..." />
       </ThemeProvider>
     );
   }
@@ -162,7 +162,7 @@ function PublicRoute({ children }) {
     return (
       <ThemeProvider theme={lightTheme}>
         <GlobalStyle />
-        <LoadingSpinner fullscreen text="Loading..." />
+        <LoadingSpinner $fullscreen text="Loading..." />
       </ThemeProvider>
     );
   }
@@ -190,7 +190,7 @@ function AppContent() {
     return (
       <ThemeProvider theme={lightTheme}>
         <GlobalStyle />
-        <LoadingSpinner fullscreen text="Loading..." />
+        <LoadingSpinner $fullscreen text="Loading..." />
       </ThemeProvider>
     );
   }
