@@ -1,87 +1,100 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+const API_BASE_URL = process.env.REACT_APP_SERVER_URL || 'http://localhost:5000';
 
 // Create axios instance with default config
 const authAPI = axios.create({
-  baseURL: `${API_BASE_URL}/users`,
+  baseURL: `${API_BASE_URL}/api/users`,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Add token to requests if available
-authAPI.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// Add response interceptor for better error handling
+authAPI.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('Auth API Error:', error.response?.data || error.message);
+    return Promise.reject(error);
   }
-  return config;
-});
+);
+
+// Register a new user
+export const register = async (userData) => {
+  try {
+    const response = await authAPI.post('/register', userData);
+    return response.data;
+  } catch (error) {
+    console.error('Error during registration:', error);
+    throw error;
+  }
+};
 
 // Login user
-export const loginUser = async (email, password) => {
-  const response = await authAPI.post('/login', {
-    email,
-    password
-  });
-  return response.data;
+export const login = async (credentials) => {
+  try {
+    const response = await authAPI.post('/login', credentials);
+    return response.data;
+  } catch (error) {
+    console.error('Error during login:', error);
+    throw error;
+  }
 };
 
-// Register new user
-export const registerUser = async (name, email, password) => {
-  const response = await authAPI.post('/register', {
-    name,
-    email,
-    password
-  });
-  return response.data;
-};
-
-// Create guest user
-export const createGuestUser = async (name) => {
-  const response = await authAPI.post('/guest', {
-    name
-  });
-  return response.data;
+// Guest login
+export const guestLogin = async () => {
+  try {
+    const response = await authAPI.post('/guest');
+    return response.data;
+  } catch (error) {
+    console.error('Error during guest login:', error);
+    throw error;
+  }
 };
 
 // Verify token
 export const verifyToken = async (token) => {
-  const response = await authAPI.get('/verify', {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
-  });
-  return response.data;
-};
-
-// Get user profile
-export const getUserProfile = async (userId) => {
-  const response = await authAPI.get('/profile', {
-    params: { userId }
-  });
-  return response.data;
+  try {
+    const response = await authAPI.get('/verify', {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error verifying token:', error);
+    throw error;
+  }
 };
 
 // Update user profile
-export const updateUserProfile = async (userData) => {
-  const response = await authAPI.put('/profile', userData);
-  return response.data;
+export const updateProfile = async (userId, updateData) => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await authAPI.put(`/${userId}`, updateData, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    throw error;
+  }
 };
 
-// Search users
-export const searchUsers = async (query, limit = 10) => {
-  const response = await authAPI.get('/search', {
-    params: { query, limit }
-  });
-  return response.data;
-};
-
-// Delete user account
-export const deleteUserAccount = async (userId, password) => {
-  const response = await authAPI.delete('/account', {
-    data: { userId, password }
-  });
-  return response.data;
+// Update user preferences
+export const updatePreferences = async (userId, preferences) => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await authAPI.put(`/${userId}/preferences`, { preferences }, {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error updating preferences:', error);
+    throw error;
+  }
 };

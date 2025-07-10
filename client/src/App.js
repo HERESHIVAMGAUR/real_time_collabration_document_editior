@@ -144,7 +144,12 @@ function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <LoadingSpinner />;
+    return (
+      <ThemeProvider theme={lightTheme}>
+        <GlobalStyle />
+        <LoadingSpinner $fullscreen text="Checking authentication..." />
+      </ThemeProvider>
+    );
   }
 
   return user ? children : <Navigate to="/login" />;
@@ -154,7 +159,12 @@ function PublicRoute({ children }) {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <LoadingSpinner />;
+    return (
+      <ThemeProvider theme={lightTheme}>
+        <GlobalStyle />
+        <LoadingSpinner $fullscreen text="Loading..." />
+      </ThemeProvider>
+    );
   }
 
   return !user ? children : <Navigate to="/dashboard" />;
@@ -177,7 +187,12 @@ function AppContent() {
   }, [user?.preferences?.theme]);
 
   if (loading) {
-    return <LoadingSpinner />;
+    return (
+      <ThemeProvider theme={lightTheme}>
+        <GlobalStyle />
+        <LoadingSpinner $fullscreen text="Loading..." />
+      </ThemeProvider>
+    );
   }
 
   return (

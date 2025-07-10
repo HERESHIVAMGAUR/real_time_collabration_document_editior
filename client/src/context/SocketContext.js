@@ -18,7 +18,8 @@ export function SocketProvider({ children }) {
         auth: {
           userId: user.id,
           userName: user.name
-        }
+        },
+        transports: ['websocket', 'polling']
       });
 
       newSocket.on('connect', () => {
@@ -54,7 +55,8 @@ export function SocketProvider({ children }) {
 
   // Join document
   const joinDocument = useCallback((documentId) => {
-    if (socket && user) {
+    if (socket && user && connected) {
+      console.log('Joining document:', documentId);
       socket.emit('join-document', {
         documentId,
         userId: user.id,
@@ -62,71 +64,58 @@ export function SocketProvider({ children }) {
       });
       setCurrentDocument(documentId);
     }
-  }, [socket, user]);
+  }, [socket, user, connected]);
 
-  // Leave document
+  // Leave document - fixed to leave room instead of disconnecting socket
   const leaveDocument = useCallback(() => {
     if (socket && currentDocument) {
-      socket.disconnect();
+      console.log('Leaving document:', currentDocument);
+      socket.emit('leave-document', {
+        documentId: currentDocument,
+        userId: user?.id
+      });
       setCurrentDocument(null);
       setCollaborators([]);
     }
-  }, [socket, currentDocument]);
+  }, [socket, currentDocument, user]);
 
   // Send text change
   const sendTextChange = useCallback((delta, content) => {
-    if (socket && currentDocument) {
+    if (socket && currentDocument && connected) {
       socket.emit('text-change', {
         documentId: currentDocument,
         delta,
-        content
+        content,
+        userId: user?.id
       });
     }
-  }, [socket, currentDocument]);
+  }, [socket, currentDocument, connected, user]);
 
   // Send cursor change
   const sendCursorChange = useCallback((position) => {
-    if (socket && currentDocument) {
+    if (socket && currentDocument && connected) {
       socket.emit('cursor-change', {
         documentId: currentDocument,
-        position
+        position,
+        userId: user?.id
       });
     }
-  }, [socket, currentDocument]);
+  }, [socket, currentDocument, connected, user]);
 
   // Send title change
   const sendTitleChange = useCallback((title) => {
-    if (socket && currentDocument) {
+    if (socket && currentDocument && connected) {
       socket.emit('title-change', {
         documentId: currentDocument,
-        title
+        title,
+        userId: user?.id
       });
     }
-  }, [socket, currentDocument]);
+  }, [socket, currentDocument, connected, user]);
 
   // Event listeners setup
   useEffect(() => {
     if (!socket) return;
-
-    // Document events
-    const handleDocumentData = (data) => {
-      console.log('Received document data:', data);
-    };
-
-    const handleTextChange = (data) => {
-      console.log('Received text change:', data);
-      // This will be handled by the editor component
-    };
-
-    const handleCursorChange = (data) => {
-      console.log('Received cursor change:', data);
-      // This will be handled by the editor component
-    };
-
-    const handleTitleChange = (data) => {
-      console.log('Received title change:', data);
-      // This will be handled by the editor component
-    };
 
     // User events
     const handleUserJoined = (data) => {
@@ -134,7 +123,11 @@ export function SocketProvider({ children }) {
       setCollaborators(prev => {
         const existing = prev.find(c => c.userId === data.userId);
         if (existing) return prev;
-        return [...prev, data];
+        return [...prev, {
+          userId: data.userId,
+          userName: data.userName,
+          color: data.color || '#4A90E2'
+        }];
       });
     };
 
@@ -145,7 +138,11 @@ export function SocketProvider({ children }) {
 
     const handleUsersUpdate = (users) => {
       console.log('Users update:', users);
-      setCollaborators(users);
+      setCollaborators(users.map(user => ({
+        userId: user.userId,
+        userName: user.userName,
+        color: user.color || '#4A90E2'
+      })));
     };
 
     const handleError = (error) => {
@@ -153,10 +150,6 @@ export function SocketProvider({ children }) {
     };
 
     // Register event listeners
-    socket.on('document-data', handleDocumentData);
-    socket.on('text-change', handleTextChange);
-    socket.on('cursor-change', handleCursorChange);
-    socket.on('title-change', handleTitleChange);
     socket.on('user-joined', handleUserJoined);
     socket.on('user-left', handleUserLeft);
     socket.on('users-update', handleUsersUpdate);
@@ -164,10 +157,6 @@ export function SocketProvider({ children }) {
 
     // Cleanup
     return () => {
-      socket.off('document-data', handleDocumentData);
-      socket.off('text-change', handleTextChange);
-      socket.off('cursor-change', handleCursorChange);
-      socket.off('title-change', handleTitleChange);
       socket.off('user-joined', handleUserJoined);
       socket.off('user-left', handleUserLeft);
       socket.off('users-update', handleUsersUpdate);

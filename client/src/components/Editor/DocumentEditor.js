@@ -72,8 +72,8 @@ const ConnectionStatus = styled.div`
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
-  background: ${props => props.connected ? props.theme.colors.success : props.theme.colors.error}15;
-  color: ${props => props.connected ? props.theme.colors.success : props.theme.colors.error};
+  background: ${props => props.$connected ? props.theme.colors.success : props.theme.colors.error}15;
+  color: ${props => props.$connected ? props.theme.colors.success : props.theme.colors.error};
 `;
 
 const SaveStatus = styled.div`
@@ -99,7 +99,7 @@ const CollaboratorAvatar = styled.div`
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: ${props => props.color || props.theme.colors.primary};
+  background: ${props => props.$color || props.theme.colors.primary};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -154,15 +154,18 @@ const EditorWrapper = styled.div`
     line-height: 1.6;
     padding: ${props => props.theme.spacing.xl};
     min-height: calc(100vh - 160px);
+    color: ${props => props.theme.colors.text};
   }
 
   .ql-toolbar {
     border-left: none;
     border-right: none;
     border-top: none;
+    border-bottom: 1px solid ${props => props.theme.colors.border};
     position: sticky;
     top: 0;
     z-index: 50;
+    background: ${props => props.theme.colors.surface};
   }
 
   .ql-container {
@@ -171,6 +174,7 @@ const EditorWrapper = styled.div`
     border-bottom: none;
     flex: 1;
     overflow-y: auto;
+    background: ${props => props.theme.colors.background};
   }
 `;
 
@@ -179,17 +183,22 @@ const ActionButton = styled.button`
   align-items: center;
   gap: ${props => props.theme.spacing.xs};
   padding: ${props => props.theme.spacing.sm} ${props => props.theme.spacing.md};
-  background: ${props => props.primary ? props.theme.colors.primary : 'transparent'};
-  color: ${props => props.primary ? 'white' : props.theme.colors.textSecondary};
-  border: 1px solid ${props => props.primary ? props.theme.colors.primary : props.theme.colors.border};
+  background: ${props => props.$primary ? props.theme.colors.primary : 'transparent'};
+  color: ${props => props.$primary ? 'white' : props.theme.colors.textSecondary};
+  border: 1px solid ${props => props.$primary ? props.theme.colors.primary : props.theme.colors.border};
   border-radius: ${props => props.theme.borderRadius};
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${props => props.primary ? props.theme.colors.primaryHover : props.theme.colors.secondary};
-    color: ${props => props.primary ? 'white' : props.theme.colors.text};
+    background: ${props => props.$primary ? props.theme.colors.primaryHover : props.theme.colors.secondary};
+    color: ${props => props.$primary ? 'white' : props.theme.colors.text};
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 `;
 
@@ -227,6 +236,8 @@ function DocumentEditor() {
   const quillRef = useRef(null);
   const titleTimeoutRef = useRef(null);
   const contentTimeoutRef = useRef(null);
+  const isUpdatingFromSocket = useRef(false);
+  const lastContentRef = useRef('');
 
   // Quill modules configuration
   const modules = {
@@ -249,66 +260,118 @@ function DocumentEditor() {
   ];
 
   // Load document data
-  useEffect(() => {
-    loadDocument();
+  const loadDocument = useCallback(async () => {
+    if (!documentId || !user) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Loading document:', documentId);
+      
+      const doc = await getDocument(documentId, user.id);
+      console.log('Document loaded:', doc);
+      
+      setDocument(doc);
+      setTitle(doc.title || 'Untitled Document');
+      
+      const initialContent = doc.content || '';
+      setContent(initialContent);
+      lastContentRef.current = initialContent;
+      
+      setLastSaved(doc.lastModified ? new Date(doc.lastModified) : null);
+    } catch (error) {
+      console.error('Error loading document:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to load document. You may not have permission to access it.';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   }, [documentId, user]);
 
-  // Join document socket room
+  // Load document on mount
   useEffect(() => {
-    if (documentId && user && socket) {
+    loadDocument();
+  }, [loadDocument]);
+
+  // Join document socket room after document is loaded
+  useEffect(() => {
+    if (documentId && user && socket && connected && !loading && !error) {
+      console.log('Joining document room:', documentId);
       joinDocument(documentId);
     }
-  }, [documentId, user, socket, joinDocument]);
+  }, [documentId, user, socket, connected, loading, error, joinDocument]);
 
-  // Socket event listeners
+  // Socket event listeners with improved handling
   useEffect(() => {
     if (!socket) return;
 
     const handleDocumentData = (data) => {
-      setContent(data.content);
-      setTitle(data.title);
-      setLastSaved(new Date(data.lastModified));
-      setLoading(false);
+      console.log('Received document data:', data);
+      isUpdatingFromSocket.current = true;
+      
+      const newContent = data.content || '';
+      setContent(newContent);
+      lastContentRef.current = newContent;
+      setTitle(data.title || 'Untitled Document');
+      setLastSaved(data.lastModified ? new Date(data.lastModified) : null);
+      
+      // Reset flag after a short delay
+      setTimeout(() => {
+        isUpdatingFromSocket.current = false;
+      }, 50);
     };
 
     const handleTextChange = (data) => {
-      if (quillRef.current) {
+      console.log('Received text change:', data);
+      
+      // Only apply changes from other users
+      if (data.userId !== user?.id && quillRef.current) {
+        isUpdatingFromSocket.current = true;
         const quill = quillRef.current.getEditor();
-        quill.updateContents(data.delta, 'silent');
+        
+        try {
+          if (data.content && data.content !== lastContentRef.current) {
+            // Set content directly if it's different
+            quill.root.innerHTML = data.content;
+            lastContentRef.current = data.content;
+            setContent(data.content);
+          }
+        } catch (error) {
+          console.error('Error applying text change:', error);
+        }
+        
+        // Reset flag quickly to allow immediate user input
+        setTimeout(() => {
+          isUpdatingFromSocket.current = false;
+        }, 50);
       }
     };
 
     const handleTitleChange = (data) => {
-      setTitle(data.title);
+      console.log('Received title change:', data);
+      if (data.userId !== user?.id) {
+        setTitle(data.title || 'Untitled Document');
+      }
+    };
+
+    const handleError = (error) => {
+      console.error('Socket error:', error);
+      toast.error(error.message || 'A socket error occurred');
     };
 
     socket.on('document-data', handleDocumentData);
     socket.on('text-change', handleTextChange);
     socket.on('title-change', handleTitleChange);
+    socket.on('error', handleError);
 
     return () => {
       socket.off('document-data', handleDocumentData);
       socket.off('text-change', handleTextChange);
       socket.off('title-change', handleTitleChange);
+      socket.off('error', handleError);
     };
-  }, [socket]);
-
-  const loadDocument = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const doc = await getDocument(documentId, user.id);
-      setDocument(doc);
-      setTitle(doc.title);
-      setContent(doc.content);
-      setLastSaved(new Date(doc.lastModified));
-    } catch (error) {
-      console.error('Error loading document:', error);
-      setError('Failed to load document. You may not have permission to access it.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [socket, user]);
 
   const handleTitleChange = useCallback((newTitle) => {
     setTitle(newTitle);
@@ -319,19 +382,28 @@ function DocumentEditor() {
     }
     
     titleTimeoutRef.current = setTimeout(() => {
-      sendTitleChange(newTitle);
+      if (connected && sendTitleChange) {
+        sendTitleChange(newTitle);
+      }
     }, 500);
-  }, [sendTitleChange]);
+  }, [sendTitleChange, connected]);
 
   const handleContentChange = useCallback((value, delta, source, editor) => {
-    if (source === 'user') {
+    console.log('Content change:', { source, isUpdatingFromSocket: isUpdatingFromSocket.current });
+    
+    // Only process user changes, not programmatic ones
+    if (source === 'user' && !isUpdatingFromSocket.current) {
       const newContent = editor.getHTML();
       setContent(newContent);
+      lastContentRef.current = newContent;
       
-      // Send real-time changes
-      sendTextChange(delta, newContent);
+      // Send real-time changes if connected
+      if (connected && sendTextChange) {
+        console.log('Sending text change');
+        sendTextChange(delta, newContent);
+      }
       
-      // Debounce save status update
+      // Update save status
       setSaving(true);
       if (contentTimeoutRef.current) {
         clearTimeout(contentTimeoutRef.current);
@@ -342,7 +414,27 @@ function DocumentEditor() {
         setLastSaved(new Date());
       }, 1000);
     }
-  }, [sendTextChange]);
+  }, [sendTextChange, connected]);
+
+  // Initialize Quill content when it's ready
+  useEffect(() => {
+    if (quillRef.current && content && !isUpdatingFromSocket.current) {
+      const quill = quillRef.current.getEditor();
+      const currentContent = quill.root.innerHTML;
+      
+      // Only update if content is actually different
+      if (currentContent !== content && content !== lastContentRef.current) {
+        console.log('Setting initial content in Quill');
+        isUpdatingFromSocket.current = true;
+        quill.root.innerHTML = content;
+        lastContentRef.current = content;
+        
+        setTimeout(() => {
+          isUpdatingFromSocket.current = false;
+        }, 50);
+      }
+    }
+  }, [content, loading]);
 
   const getInitials = (name) => {
     return name
@@ -370,8 +462,29 @@ function DocumentEditor() {
     }
   };
 
+  const handleShareDocument = () => {
+    const shareUrl = window.location.href;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      toast.success('Document link copied to clipboard!');
+    }).catch(() => {
+      toast.error('Failed to copy link');
+    });
+  };
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (titleTimeoutRef.current) {
+        clearTimeout(titleTimeoutRef.current);
+      }
+      if (contentTimeoutRef.current) {
+        clearTimeout(contentTimeoutRef.current);
+      }
+    };
+  }, []);
+
   if (loading) {
-    return <LoadingSpinner fullscreen text="Loading document..." />;
+    return <LoadingSpinner $fullscreen text="Loading document..." />;
   }
 
   if (error) {
@@ -402,7 +515,7 @@ function DocumentEditor() {
         </TitleSection>
 
         <StatusSection>
-          <ConnectionStatus connected={connected}>
+          <ConnectionStatus $connected={connected}>
             {connected ? <FiWifi size={12} /> : <FiWifiOff size={12} />}
             {connected ? 'Connected' : 'Disconnected'}
           </ConnectionStatus>
@@ -425,7 +538,7 @@ function DocumentEditor() {
               {collaborators.slice(0, 5).map((collaborator) => (
                 <CollaboratorAvatar
                   key={collaborator.userId}
-                  color={collaborator.color}
+                  $color={collaborator.color}
                   title={collaborator.userName}
                 >
                   {getInitials(collaborator.userName)}
@@ -439,7 +552,7 @@ function DocumentEditor() {
             </CollaboratorCount>
           </CollaboratorsSection>
 
-          <ActionButton>
+          <ActionButton onClick={handleShareDocument}>
             <FiShare size={12} />
             Share
           </ActionButton>
@@ -456,6 +569,7 @@ function DocumentEditor() {
             modules={modules}
             formats={formats}
             placeholder="Start writing your document..."
+            readOnly={false}
           />
         </EditorWrapper>
       </EditorContent>
