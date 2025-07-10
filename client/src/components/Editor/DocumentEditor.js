@@ -72,8 +72,8 @@ const ConnectionStatus = styled.div`
   border-radius: 12px;
   font-size: 12px;
   font-weight: 500;
-  background: ${props => props.connected ? props.theme.colors.success : props.theme.colors.error}15;
-  color: ${props => props.connected ? props.theme.colors.success : props.theme.colors.error};
+  background: ${props => props.$connected ? props.theme.colors.success : props.theme.colors.error}15;
+  color: ${props => props.$connected ? props.theme.colors.success : props.theme.colors.error};
 `;
 
 const SaveStatus = styled.div`
@@ -99,7 +99,7 @@ const CollaboratorAvatar = styled.div`
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: ${props => props.color || props.theme.colors.primary};
+  background: ${props => props.$color || props.theme.colors.primary};
   display: flex;
   align-items: center;
   justify-content: center;
@@ -179,17 +179,17 @@ const ActionButton = styled.button`
   align-items: center;
   gap: ${props => props.theme.spacing.xs};
   padding: ${props => props.theme.spacing.sm} ${props => props.theme.spacing.md};
-  background: ${props => props.primary ? props.theme.colors.primary : 'transparent'};
-  color: ${props => props.primary ? 'white' : props.theme.colors.textSecondary};
-  border: 1px solid ${props => props.primary ? props.theme.colors.primary : props.theme.colors.border};
+  background: ${props => props.$primary ? props.theme.colors.primary : 'transparent'};
+  color: ${props => props.$primary ? 'white' : props.theme.colors.textSecondary};
+  border: 1px solid ${props => props.$primary ? props.theme.colors.primary : props.theme.colors.border};
   border-radius: ${props => props.theme.borderRadius};
   font-size: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${props => props.primary ? props.theme.colors.primaryHover : props.theme.colors.secondary};
-    color: ${props => props.primary ? 'white' : props.theme.colors.text};
+    background: ${props => props.$primary ? props.theme.colors.primaryHover : props.theme.colors.secondary};
+    color: ${props => props.$primary ? 'white' : props.theme.colors.text};
   }
 `;
 
@@ -227,6 +227,7 @@ function DocumentEditor() {
   const quillRef = useRef(null);
   const titleTimeoutRef = useRef(null);
   const contentTimeoutRef = useRef(null);
+  const isUpdatingFromSocket = useRef(false);
 
   // Quill modules configuration
   const modules = {
@@ -249,66 +250,99 @@ function DocumentEditor() {
   ];
 
   // Load document data
-  useEffect(() => {
-    loadDocument();
+  const loadDocument = useCallback(async () => {
+    if (!documentId || !user) return;
+    
+    try {
+      setLoading(true);
+      setError(null);
+      console.log('Loading document:', documentId);
+      
+      const doc = await getDocument(documentId, user.id);
+      console.log('Document loaded:', doc);
+      
+      setDocument(doc);
+      setTitle(doc.title || 'Untitled Document');
+      setContent(doc.content || '');
+      setLastSaved(doc.lastModified ? new Date(doc.lastModified) : null);
+    } catch (error) {
+      console.error('Error loading document:', error);
+      const errorMessage = error.response?.data?.message || 'Failed to load document. You may not have permission to access it.';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   }, [documentId, user]);
 
-  // Join document socket room
+  // Load document on mount
   useEffect(() => {
-    if (documentId && user && socket) {
+    loadDocument();
+  }, [loadDocument]);
+
+  // Join document socket room after document is loaded
+  useEffect(() => {
+    if (documentId && user && socket && connected && !loading && !error) {
+      console.log('Joining document room:', documentId);
       joinDocument(documentId);
     }
-  }, [documentId, user, socket, joinDocument]);
+  }, [documentId, user, socket, connected, loading, error, joinDocument]);
 
   // Socket event listeners
   useEffect(() => {
     if (!socket) return;
 
     const handleDocumentData = (data) => {
-      setContent(data.content);
-      setTitle(data.title);
-      setLastSaved(new Date(data.lastModified));
-      setLoading(false);
+      console.log('Received document data:', data);
+      isUpdatingFromSocket.current = true;
+      setContent(data.content || '');
+      setTitle(data.title || 'Untitled Document');
+      setLastSaved(data.lastModified ? new Date(data.lastModified) : null);
+      setTimeout(() => {
+        isUpdatingFromSocket.current = false;
+      }, 100);
     };
 
     const handleTextChange = (data) => {
-      if (quillRef.current) {
+      console.log('Received text change:', data);
+      if (quillRef.current && data.userId !== user?.id) {
+        isUpdatingFromSocket.current = true;
         const quill = quillRef.current.getEditor();
-        quill.updateContents(data.delta, 'silent');
+        if (data.delta) {
+          quill.updateContents(data.delta, 'silent');
+        } else if (data.content) {
+          quill.setContents(quill.clipboard.convert(data.content), 'silent');
+        }
+        setTimeout(() => {
+          isUpdatingFromSocket.current = false;
+        }, 100);
       }
     };
 
     const handleTitleChange = (data) => {
-      setTitle(data.title);
+      console.log('Received title change:', data);
+      if (data.userId !== user?.id) {
+        setTitle(data.title || 'Untitled Document');
+      }
+    };
+
+    const handleError = (error) => {
+      console.error('Socket error:', error);
+      toast.error(error.message || 'A socket error occurred');
     };
 
     socket.on('document-data', handleDocumentData);
     socket.on('text-change', handleTextChange);
     socket.on('title-change', handleTitleChange);
+    socket.on('error', handleError);
 
     return () => {
       socket.off('document-data', handleDocumentData);
       socket.off('text-change', handleTextChange);
       socket.off('title-change', handleTitleChange);
+      socket.off('error', handleError);
     };
-  }, [socket]);
-
-  const loadDocument = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const doc = await getDocument(documentId, user.id);
-      setDocument(doc);
-      setTitle(doc.title);
-      setContent(doc.content);
-      setLastSaved(new Date(doc.lastModified));
-    } catch (error) {
-      console.error('Error loading document:', error);
-      setError('Failed to load document. You may not have permission to access it.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [socket, user]);
 
   const handleTitleChange = useCallback((newTitle) => {
     setTitle(newTitle);
@@ -319,17 +353,21 @@ function DocumentEditor() {
     }
     
     titleTimeoutRef.current = setTimeout(() => {
-      sendTitleChange(newTitle);
+      if (connected) {
+        sendTitleChange(newTitle);
+      }
     }, 500);
-  }, [sendTitleChange]);
+  }, [sendTitleChange, connected]);
 
   const handleContentChange = useCallback((value, delta, source, editor) => {
-    if (source === 'user') {
+    if (source === 'user' && !isUpdatingFromSocket.current) {
       const newContent = editor.getHTML();
       setContent(newContent);
       
       // Send real-time changes
-      sendTextChange(delta, newContent);
+      if (connected) {
+        sendTextChange(delta, newContent);
+      }
       
       // Debounce save status update
       setSaving(true);
@@ -342,7 +380,7 @@ function DocumentEditor() {
         setLastSaved(new Date());
       }, 1000);
     }
-  }, [sendTextChange]);
+  }, [sendTextChange, connected]);
 
   const getInitials = (name) => {
     return name
@@ -369,6 +407,27 @@ function DocumentEditor() {
       return date.toLocaleDateString();
     }
   };
+
+  const handleShareDocument = () => {
+    const shareUrl = window.location.href;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      toast.success('Document link copied to clipboard!');
+    }).catch(() => {
+      toast.error('Failed to copy link');
+    });
+  };
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (titleTimeoutRef.current) {
+        clearTimeout(titleTimeoutRef.current);
+      }
+      if (contentTimeoutRef.current) {
+        clearTimeout(contentTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (loading) {
     return <LoadingSpinner fullscreen text="Loading document..." />;
@@ -402,7 +461,7 @@ function DocumentEditor() {
         </TitleSection>
 
         <StatusSection>
-          <ConnectionStatus connected={connected}>
+          <ConnectionStatus $connected={connected}>
             {connected ? <FiWifi size={12} /> : <FiWifiOff size={12} />}
             {connected ? 'Connected' : 'Disconnected'}
           </ConnectionStatus>
@@ -425,7 +484,7 @@ function DocumentEditor() {
               {collaborators.slice(0, 5).map((collaborator) => (
                 <CollaboratorAvatar
                   key={collaborator.userId}
-                  color={collaborator.color}
+                  $color={collaborator.color}
                   title={collaborator.userName}
                 >
                   {getInitials(collaborator.userName)}
@@ -439,7 +498,7 @@ function DocumentEditor() {
             </CollaboratorCount>
           </CollaboratorsSection>
 
-          <ActionButton>
+          <ActionButton onClick={handleShareDocument}>
             <FiShare size={12} />
             Share
           </ActionButton>

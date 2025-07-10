@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-import { FiEdit3, FiUser, FiLock, FiMail } from 'react-icons/fi';
+import { FiEye, FiEyeOff, FiUser, FiMail, FiLock } from 'react-icons/fi';
+import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 import LoadingSpinner from '../UI/LoadingSpinner';
 
@@ -10,13 +11,13 @@ const LoginContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, ${props => props.theme.colors.primary}15 0%, ${props => props.theme.colors.secondary} 100%);
   padding: ${props => props.theme.spacing.lg};
 `;
 
 const LoginCard = styled.div`
-  background: ${props => props.theme.colors.background};
-  border-radius: 16px;
+  background: ${props => props.theme.colors.surface};
+  border-radius: 12px;
   box-shadow: ${props => props.theme.shadows.heavy};
   padding: ${props => props.theme.spacing.xxl};
   width: 100%;
@@ -24,35 +25,36 @@ const LoginCard = styled.div`
   border: 1px solid ${props => props.theme.colors.border};
 `;
 
-const Header = styled.div`
+const Logo = styled.div`
   text-align: center;
   margin-bottom: ${props => props.theme.spacing.xl};
 `;
 
-const Logo = styled.div`
+const LogoIcon = styled.div`
+  width: 60px;
+  height: 60px;
+  background: ${props => props.theme.colors.primary};
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: ${props => props.theme.spacing.sm};
-  margin-bottom: ${props => props.theme.spacing.lg};
-`;
-
-const LogoIcon = styled(FiEdit3)`
-  font-size: 32px;
-  color: ${props => props.theme.colors.primary};
+  margin: 0 auto ${props => props.theme.spacing.md};
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
 `;
 
 const Title = styled.h1`
-  font-size: 28px;
-  font-weight: 700;
   color: ${props => props.theme.colors.text};
-  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: ${props => props.theme.spacing.sm};
 `;
 
 const Subtitle = styled.p`
   color: ${props => props.theme.colors.textSecondary};
-  margin-top: ${props => props.theme.spacing.sm};
-  font-size: 16px;
+  font-size: 14px;
+  margin-bottom: ${props => props.theme.spacing.xl};
 `;
 
 const Form = styled.form`
@@ -65,28 +67,36 @@ const InputGroup = styled.div`
   position: relative;
 `;
 
-const InputIcon = styled.div`
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: ${props => props.theme.colors.textSecondary};
-  font-size: 18px;
+const InputLabel = styled.label`
+  display: block;
+  color: ${props => props.theme.colors.text};
+  font-weight: 500;
+  margin-bottom: ${props => props.theme.spacing.sm};
+  font-size: 14px;
+`;
+
+const InputWrapper = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
 `;
 
 const Input = styled.input`
   width: 100%;
-  padding: 16px 16px 16px 48px;
-  border: 2px solid ${props => props.theme.colors.border};
+  padding: ${props => props.theme.spacing.md} ${props => props.theme.spacing.lg};
+  padding-left: ${props => props.hasIcon ? '44px' : props.theme.spacing.lg};
+  padding-right: ${props => props.hasAction ? '44px' : props.theme.spacing.lg};
+  border: 1px solid ${props => props.theme.colors.border};
   border-radius: ${props => props.theme.borderRadius};
-  font-size: 16px;
-  background: ${props => props.theme.colors.surface};
+  background: ${props => props.theme.colors.background};
   color: ${props => props.theme.colors.text};
-  transition: border-color 0.2s ease;
+  font-size: 16px;
+  transition: all 0.3s ease;
 
   &:focus {
-    border-color: ${props => props.theme.colors.primary};
     outline: none;
+    border-color: ${props => props.theme.colors.primary};
+    box-shadow: 0 0 0 3px ${props => props.theme.colors.primary}20;
   }
 
   &::placeholder {
@@ -94,9 +104,33 @@ const Input = styled.input`
   }
 `;
 
-const Button = styled.button`
+const InputIcon = styled.div`
+  position: absolute;
+  left: ${props => props.theme.spacing.md};
+  color: ${props => props.theme.colors.textSecondary};
+  pointer-events: none;
+`;
+
+const PasswordToggle = styled.button`
+  position: absolute;
+  right: ${props => props.theme.spacing.md};
+  background: none;
+  border: none;
+  color: ${props => props.theme.colors.textSecondary};
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: ${props => props.theme.colors.text};
+  }
+`;
+
+const SubmitButton = styled.button`
   width: 100%;
-  padding: 16px;
+  padding: ${props => props.theme.spacing.md} ${props => props.theme.spacing.lg};
   background: ${props => props.theme.colors.primary};
   color: white;
   border: none;
@@ -104,70 +138,91 @@ const Button = styled.button`
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.3s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: ${props => props.theme.spacing.sm};
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: ${props => props.theme.colors.primaryHover};
+    transform: translateY(-1px);
+    box-shadow: ${props => props.theme.shadows.medium};
   }
 
   &:disabled {
-    background: ${props => props.theme.colors.border};
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+`;
+
+const GuestButton = styled.button`
+  width: 100%;
+  padding: ${props => props.theme.spacing.md} ${props => props.theme.spacing.lg};
+  background: transparent;
+  color: ${props => props.theme.colors.textSecondary};
+  border: 1px solid ${props => props.theme.colors.border};
+  border-radius: ${props => props.theme.borderRadius};
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: ${props => props.theme.spacing.sm};
+
+  &:hover:not(:disabled) {
+    background: ${props => props.theme.colors.secondary};
+    color: ${props => props.theme.colors.text};
+    border-color: ${props => props.theme.colors.primary};
+  }
+
+  &:disabled {
+    opacity: 0.6;
     cursor: not-allowed;
   }
 `;
 
-const GuestButton = styled(Button)`
-  background: ${props => props.theme.colors.secondary};
-  color: ${props => props.theme.colors.text};
-  margin-top: ${props => props.theme.spacing.md};
-
-  &:hover {
-    background: ${props => props.theme.colors.border};
-  }
-`;
-
 const Divider = styled.div`
-  text-align: center;
+  display: flex;
+  align-items: center;
   margin: ${props => props.theme.spacing.lg} 0;
-  position: relative;
-  color: ${props => props.theme.colors.textSecondary};
-
-  &::before {
+  
+  &::before,
+  &::after {
     content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
+    flex: 1;
     height: 1px;
     background: ${props => props.theme.colors.border};
-    z-index: 1;
   }
 
   span {
-    background: ${props => props.theme.colors.background};
-    padding: 0 ${props => props.theme.spacing.md};
-    position: relative;
-    z-index: 2;
+    margin: 0 ${props => props.theme.spacing.md};
+    color: ${props => props.theme.colors.textSecondary};
+    font-size: 12px;
+    font-weight: 500;
   }
 `;
 
 const Footer = styled.div`
   text-align: center;
   margin-top: ${props => props.theme.spacing.xl};
+`;
+
+const FooterText = styled.p`
   color: ${props => props.theme.colors.textSecondary};
+  font-size: 14px;
+`;
 
-  a {
-    color: ${props => props.theme.colors.primary};
-    text-decoration: none;
-    font-weight: 600;
+const FooterLink = styled(Link)`
+  color: ${props => props.theme.colors.primary};
+  font-weight: 600;
+  text-decoration: none;
 
-    &:hover {
-      text-decoration: underline;
-    }
+  &:hover {
+    text-decoration: underline;
   }
 `;
 
@@ -177,8 +232,8 @@ const ErrorMessage = styled.div`
   color: ${props => props.theme.colors.error};
   padding: ${props => props.theme.spacing.md};
   border-radius: ${props => props.theme.borderRadius};
-  margin-bottom: ${props => props.theme.spacing.lg};
   font-size: 14px;
+  margin-bottom: ${props => props.theme.spacing.lg};
 `;
 
 function Login() {
@@ -186,129 +241,151 @@ function Login() {
     email: '',
     password: ''
   });
-  const [guestName, setGuestName] = useState('');
-  const [showGuestForm, setShowGuestForm] = useState(false);
-  const { login, loginAsGuest, loading, error } = useAuth();
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const { loginUser, loginAsGuest } = useAuth();
   const navigate = useNavigate();
 
   const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    setError(''); // Clear error when user starts typing
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const result = await login(formData.email, formData.password);
-    if (result.success) {
-      navigate('/dashboard');
+    
+    if (!formData.email || !formData.password) {
+      setError('Please fill in all fields');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const result = await loginUser(formData.email, formData.password);
+      
+      if (result.success) {
+        toast.success('Welcome back!');
+        navigate('/dashboard');
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleGuestLogin = async (e) => {
-    e.preventDefault();
-    const result = await loginAsGuest(guestName || 'Guest User');
-    if (result.success) {
-      navigate('/dashboard');
+  const handleGuestLogin = async () => {
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const result = await loginAsGuest();
+      
+      if (result.success) {
+        toast.success('Welcome, guest!');
+        navigate('/dashboard');
+      } else {
+        setError(result.error);
+      }
+    } catch (error) {
+      console.error('Guest login error:', error);
+      setError('Failed to create guest account. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return <LoadingSpinner fullscreen text="Signing you in..." />;
   }
 
   return (
     <LoginContainer>
       <LoginCard>
-        <Header>
-          <Logo>
-            <LogoIcon />
-            <Title>DocuCollab</Title>
-          </Logo>
-          <Subtitle>Collaborate on documents in real-time</Subtitle>
-        </Header>
+        <Logo>
+          <LogoIcon>📝</LogoIcon>
+          <Title>Welcome Back</Title>
+          <Subtitle>Sign in to your collaborative workspace</Subtitle>
+        </Logo>
 
         {error && <ErrorMessage>{error}</ErrorMessage>}
 
-        {!showGuestForm ? (
-          <>
-            <Form onSubmit={handleSubmit}>
-              <InputGroup>
-                <InputIcon>
-                  <FiMail />
-                </InputIcon>
-                <Input
-                  type="email"
-                  name="email"
-                  placeholder="Email address"
-                  value={formData.email}
-                  onChange={handleInputChange}
-                  required
-                />
-              </InputGroup>
-
-              <InputGroup>
-                <InputIcon>
-                  <FiLock />
-                </InputIcon>
-                <Input
-                  type="password"
-                  name="password"
-                  placeholder="Password"
-                  value={formData.password}
-                  onChange={handleInputChange}
-                  required
-                />
-              </InputGroup>
-
-              <Button type="submit" disabled={loading}>
-                Sign In
-              </Button>
-            </Form>
-
-            <Divider>
-              <span>or</span>
-            </Divider>
-
-            <GuestButton
-              type="button"
-              onClick={() => setShowGuestForm(true)}
-            >
-              <FiUser />
-              Continue as Guest
-            </GuestButton>
-          </>
-        ) : (
-          <Form onSubmit={handleGuestLogin}>
-            <InputGroup>
+        <Form onSubmit={handleSubmit}>
+          <InputGroup>
+            <InputLabel htmlFor="email">Email Address</InputLabel>
+            <InputWrapper>
               <InputIcon>
-                <FiUser />
+                <FiMail size={16} />
               </InputIcon>
               <Input
-                type="text"
-                placeholder="Enter your name (optional)"
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
+                id="email"
+                name="email"
+                type="email"
+                placeholder="Enter your email"
+                value={formData.email}
+                onChange={handleInputChange}
+                hasIcon
+                required
               />
-            </InputGroup>
+            </InputWrapper>
+          </InputGroup>
 
-            <Button type="submit" disabled={loading}>
-              Continue as Guest
-            </Button>
+          <InputGroup>
+            <InputLabel htmlFor="password">Password</InputLabel>
+            <InputWrapper>
+              <InputIcon>
+                <FiLock size={16} />
+              </InputIcon>
+              <Input
+                id="password"
+                name="password"
+                type={showPassword ? 'text' : 'password'}
+                placeholder="Enter your password"
+                value={formData.password}
+                onChange={handleInputChange}
+                hasIcon
+                hasAction
+                required
+              />
+              <PasswordToggle
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+              >
+                {showPassword ? <FiEyeOff size={16} /> : <FiEye size={16} />}
+              </PasswordToggle>
+            </InputWrapper>
+          </InputGroup>
 
-            <GuestButton
-              type="button"
-              onClick={() => setShowGuestForm(false)}
-            >
-              Back to Login
-            </GuestButton>
-          </Form>
-        )}
+          <SubmitButton type="submit" disabled={isLoading}>
+            {isLoading ? 'Signing In...' : 'Sign In'}
+          </SubmitButton>
+        </Form>
+
+        <Divider>
+          <span>OR</span>
+        </Divider>
+
+        <GuestButton onClick={handleGuestLogin} disabled={isLoading}>
+          <FiUser size={16} />
+          Continue as Guest
+        </GuestButton>
 
         <Footer>
-          Don't have an account?{' '}
-          <Link to="/register">Create one here</Link>
+          <FooterText>
+            Don't have an account?{' '}
+            <FooterLink to="/register">Sign up here</FooterLink>
+          </FooterText>
         </Footer>
       </LoginCard>
     </LoginContainer>
